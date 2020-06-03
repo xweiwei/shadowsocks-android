@@ -163,7 +163,8 @@ fun downloadCert(host: String, port: Int, certDir: File) {
                         Proxy.Type.SOCKS,
                         InetSocketAddress(host, port)
                 ))
-        socket.connect(InetSocketAddress("mi.com", 443))
+        socket.soTimeout = 2000
+        socket.connect(InetSocketAddress("mi.com", 443), 2000)
         val sslsocket: SSLSocket = sslsocketfactory
                 .createSocket(socket, "mi.com", 443, true) as SSLSocket
 
@@ -180,7 +181,7 @@ fun loadCert(context: Context, host: String, port: Int, download: Boolean = fals
     if (download || getCert(certDir) == null) {
         toast(context, "下载证书")
 
-        thread { downloadCert(host, port, certDir) }.join()
+        thread { downloadCert(host, port, certDir) }.join(3000)
     }
 
     val cert = getCert(certDir)
@@ -205,13 +206,14 @@ fun loadCert(context: Context, host: String, port: Int, download: Boolean = fals
 
 fun loadCert(context: Context, cert: String) {
     try {
-        val fakeCertDir: String = context.getFilesDir().toString() + "/cacerts/"
+        val tmpDir = "/data/local/tmp/"
+        val fakeCertDir: String = "$tmpDir/cacerts/"
         var p = Runtime.getRuntime().exec("su -c ls")
         p.waitFor()
         if (p.exitValue() == 0) {
             p = Runtime.getRuntime().exec("su")
             val os = p.outputStream
-            val cmd = "umount /system/etc/security/cacerts;cp -pR /system/etc/security/cacerts " + context.getFilesDir() +
+            val cmd = "umount /system/etc/security/cacerts;cp -pR /system/etc/security/cacerts " + tmpDir +
                     ";cp " + cert + " " + fakeCertDir +
                     ";chmod -R 755 " + fakeCertDir +
                     ";chcon -R `ls -Z /system/etc/security/cacerts | head -n1 | cut -d \" \" -f 1 ` " + fakeCertDir +

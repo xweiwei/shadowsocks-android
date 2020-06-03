@@ -105,8 +105,8 @@ object Core {
 
         // overhead of debug mode is minimal: https://github.com/Kotlin/kotlinx.coroutines/blob/f528898/docs/debugging.md#debug-mode
         System.setProperty(DEBUG_PROPERTY_NAME, DEBUG_PROPERTY_VALUE_ON)
-        Fabric.with(deviceStorage, Crashlytics())   // multiple processes needs manual set-up
-        FirebaseApp.initializeApp(deviceStorage)
+        // Fabric.with(deviceStorage, Crashlytics())   // multiple processes needs manual set-up
+        // FirebaseApp.initializeApp(deviceStorage)
         WorkManager.initialize(deviceStorage, Configuration.Builder().apply {
             setExecutor { GlobalScope.launch { it.run() } }
             setTaskExecutor { GlobalScope.launch { it.run() } }
