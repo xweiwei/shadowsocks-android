@@ -33,11 +33,11 @@ android {
 
     kotlinOptions.jvmTarget = javaVersion
 
-    externalNativeBuild {
-        ndkBuild {
-            path 'src/main/jni/Android.mk'
-        }
-    }
+    // externalNativeBuild {
+    //     ndkBuild {
+    //         path 'src/main/jni/Android.mk'
+    //     }
+    // }
 
     sourceSets {
         androidTest.assets.srcDirs += files("$projectDir/schemas".toString())
@@ -75,4 +75,5 @@ dependencies {
     androidTestImplementation "androidx.test:runner:$androidTestVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidEspressoVersion"
     androidTestImplementation 'androidx.test.ext:junit-ktx:1.1.1'
+    implementation fileTree(dir: 'src/main/go/src/github.com/xweiwei/kingengine/build', include: ['*.aar', '*.jar'], exclude: [])
 }

@@ -26,8 +26,8 @@
         <com.takisoft.preferencex.SimpleMenuPreference
                 app:key="encMethod"
                 app:icon="@drawable/ic_notification_enhanced_encryption"
-                app:entries="@array/enc_method_entry"
-                app:entryValues="@array/enc_method_value"
+                app:entries="@array/proxy_protocol_entry"
+                app:entryValues="@array/proxy_protocol_entry"
                 app:title="@string/enc_method"
                 app:useSimpleSummaryProvider="true"/>
 

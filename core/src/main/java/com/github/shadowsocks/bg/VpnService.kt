@@ -21,18 +21,23 @@
 package com.github.shadowsocks.bg
 
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
 import android.net.LocalSocket
 import android.net.LocalSocketAddress
 import android.net.Network
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.Process
 import android.system.ErrnoException
 import android.system.Os
+import android.util.Log
 import com.github.shadowsocks.Core
 import com.github.shadowsocks.VpnRequestActivity
 import com.github.shadowsocks.acl.Acl
+import com.github.shadowsocks.core.BuildConfig
 import com.github.shadowsocks.core.R
 import com.github.shadowsocks.net.ConcurrentLocalSocketListener
 import com.github.shadowsocks.net.DefaultNetworkListener
@@ -41,6 +46,8 @@ import com.github.shadowsocks.net.Subnet
 import com.github.shadowsocks.preference.DataStore
 import com.github.shadowsocks.utils.Key
 import com.github.shadowsocks.utils.printLog
+import kingengine.IAndroidBridgeProxy
+import kingengine.Kingengine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -48,6 +55,8 @@ import java.io.Closeable
 import java.io.File
 import java.io.FileDescriptor
 import java.io.IOException
+import java.lang.reflect.Method
+import java.net.InetSocketAddress
 import java.net.URL
 import java.util.*
 import android.net.VpnService as BaseVpnService
@@ -120,11 +129,12 @@ class VpnService : BaseVpnService(), LocalDnsService.Interface {
     override fun onRevoke() = stopRunner()
 
     override fun killProcesses(scope: CoroutineScope) {
-        super.killProcesses(scope)
+        // super.killProcesses(scope)
         active = false
         scope.launch { DefaultNetworkListener.stop(this) }
         worker?.shutdown(scope)
         worker = null
+        Kingengine.stopVpn()
         conn?.close()
         conn = null
     }
@@ -145,8 +155,9 @@ class VpnService : BaseVpnService(), LocalDnsService.Interface {
 
     override suspend fun startProcesses(hosts: HostsFile) {
         worker = ProtectWorker().apply { start() }
-        super.startProcesses(hosts)
-        sendFd(startVpn())
+        // super.startProcesses(hosts)
+        startVpn()
+        // sendFd(startVpn())
     }
 
     override fun buildAdditionalArguments(cmd: ArrayList<String>): ArrayList<String> {
@@ -165,7 +176,7 @@ class VpnService : BaseVpnService(), LocalDnsService.Interface {
 
         if (profile.ipv6) {
             builder.addAddress(PRIVATE_VLAN6_CLIENT, 126)
-            builder.addRoute("::", 0)
+            // builder.addRoute("::", 0)
         }
 
         if (profile.proxyApps) {
@@ -180,23 +191,45 @@ class VpnService : BaseVpnService(), LocalDnsService.Interface {
                             printLog(ex)
                         }
                     }
-            if (!profile.bypass) builder.addAllowedApplication(me)
+            if (profile.bypass) {
+                Log.d(tag, "addDisallowedApplication self")
+                builder.addDisallowedApplication(packageName)
+            }
+        } else {
+            Log.d(tag, "addDisallowedApplication self")
+            builder.addDisallowedApplication(packageName)
         }
 
-        if (Build.VERSION.SDK_INT == 29) {
-            builder.addRoute("0.0.0.0", 0)
-        } else {
-            when (profile.route) {
-                Acl.ALL, Acl.BYPASS_CHN, Acl.CUSTOM_RULES -> builder.addRoute("0.0.0.0", 0)
-                else -> {
-                    resources.getStringArray(R.array.bypass_private_route).forEach {
-                        val subnet = Subnet.fromString(it)!!
-                        builder.addRoute(subnet.address.hostAddress, subnet.prefixSize)
-                    }
-                    builder.addRoute(PRIVATE_VLAN4_ROUTER, 32)
+        when (profile.route) {
+            Acl.ALL, Acl.BYPASS_CHN, Acl.CUSTOM_RULES -> {
+                builder.addRoute("0.0.0.0", 0)
+                if (profile.ipv6) builder.addRoute("::", 0)
+            }
+            else -> {
+                resources.getStringArray(R.array.bypass_private_route).forEach {
+                    val subnet = Subnet.fromString(it)!!
+                    builder.addRoute(subnet.address.hostAddress, subnet.prefixSize)
                 }
+                builder.addRoute(PRIVATE_VLAN4_ROUTER, 32)
+                // https://issuetracker.google.com/issues/149636790
+                if (profile.ipv6) builder.addRoute("2000::", 3)
             }
         }
+
+//        if (Build.VERSION.SDK_INT == 29) {
+//            builder.addRoute("0.0.0.0", 0)
+//        } else {
+//            when (profile.route) {
+//                Acl.ALL, Acl.BYPASS_CHN, Acl.CUSTOM_RULES -> builder.addRoute("0.0.0.0", 0)
+//                else -> {
+//                    resources.getStringArray(R.array.bypass_private_route).forEach {
+//                        val subnet = Subnet.fromString(it)!!
+//                        builder.addRoute(subnet.address.hostAddress, subnet.prefixSize)
+//                    }
+//                    builder.addRoute(PRIVATE_VLAN4_ROUTER, 32)
+//                }
+//            }
+//        }
 
         metered = profile.metered
         active = true   // possible race condition here?
@@ -208,27 +241,79 @@ class VpnService : BaseVpnService(), LocalDnsService.Interface {
         val conn = builder.establish() ?: throw NullConnectionException()
         this.conn = conn
 
-        val cmd = arrayListOf(File(applicationInfo.nativeLibraryDir, Executable.TUN2SOCKS).absolutePath,
-                "--netif-ipaddr", PRIVATE_VLAN4_ROUTER,
-                "--socks-server-addr", "${DataStore.listenAddress}:${DataStore.portProxy}",
-                "--tunmtu", VPN_MTU.toString(),
-                "--sock-path", "sock_path",
-                "--dnsgw", "127.0.0.1:${DataStore.portLocalDns}",
-                "--loglevel", "warning")
-        if (profile.ipv6) {
-            cmd += "--netif-ip6addr"
-            cmd += PRIVATE_VLAN6_ROUTER
-        }
-        cmd += "--enable-udprelay"
-        data.processes!!.start(cmd, onRestartCallback = {
-            try {
-                sendFd(conn.fileDescriptor)
-            } catch (e: ErrnoException) {
-                stopRunner(false, e.message)
-            }
-        })
+//        val cmd = arrayListOf(File(applicationInfo.nativeLibraryDir, Executable.TUN2SOCKS).absolutePath,
+//                "--netif-ipaddr", PRIVATE_VLAN4_ROUTER,
+//                "--socks-server-addr", "${DataStore.listenAddress}:${DataStore.portProxy}",
+//                "--tunmtu", VPN_MTU.toString(),
+//                "--sock-path", "sock_path",
+//                "--dnsgw", "127.0.0.1:${DataStore.portLocalDns}",
+//                "--loglevel", "warning")
+//        if (profile.ipv6) {
+//            cmd += "--netif-ip6addr"
+//            cmd += PRIVATE_VLAN6_ROUTER
+//        }
+//        cmd += "--enable-udprelay"
+//        data.processes!!.start(cmd, onRestartCallback = {
+//            try {
+//                sendFd(conn.fileDescriptor)
+//            } catch (e: ErrnoException) {
+//                stopRunner(false, e.message)
+//            }
+//        })
+        if (BuildConfig.DEBUG)
+            Kingengine.enableDebugInfo()
+        Kingengine.setAndroidSDK(Build.VERSION.SDK_INT.toLong())
+        Kingengine.setProxy(profile.host, profile.remotePort.toLong())
+        Kingengine.setProxyProtocol(profile.method)
+        Kingengine.startVpn(conn.fd.toLong(), AndBridge())
+
         return conn.fileDescriptor
     }
+
+
+    inner class AndBridge : IAndroidBridgeProxy {
+        private var pm: PackageManager = this@VpnService.packageManager
+        private var cm: ConnectivityManager = this@VpnService.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+        private var debug = BuildConfig.DEBUG
+
+        override fun getAppName(uid: Long): String {
+            val pkgs = pm!!.getPackagesForUid(uid.toInt())
+            var app = ""
+            if (pkgs != null) {
+                if (debug) {
+                    for (pkg in pkgs) {
+                        Log.d(tag, "pkg: $pkg")
+                    }
+                }
+                app = uid.toString() + "_" + pkgs[0]
+                if (pkgs.size > 1) {
+                    app += "_" + pkgs.size
+                }
+            }
+            return app
+        }
+
+        override fun getConnectionOwnerUid(protocol: Long, localHost: String, localPort: Long, remoteHost: String, remotePort: Long): Long {
+            if (debug)
+                Log.d(this@VpnService.tag, "$localHost:$localPort $remoteHost:$remotePort")
+            val remoteInetSocketAddress = InetSocketAddress(remoteHost, remotePort.toInt())
+            val localInetSocketAddress = InetSocketAddress(localHost, localPort.toInt())
+            var method: Method? = null
+            try {
+                method = ConnectivityManager::class.java.getMethod("getConnectionOwnerUid", Int::class.javaPrimitiveType, InetSocketAddress::class.java, InetSocketAddress::class.java)
+
+                val uid = method.invoke(this@VpnService.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager, protocol.toInt(), localInetSocketAddress, remoteInetSocketAddress) as Int
+                return if (uid == Process.INVALID_UID) {
+                    -1
+                } else uid.toLong()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            return -1
+        }
+    }
+
 
     private suspend fun sendFd(fd: FileDescriptor) {
         var tries = 0

@@ -44,6 +44,11 @@
         <item>xchacha20-ietf-poly1305</item>
     </string-array>
 
+    <string-array name="proxy_protocol_entry" translatable="false">
+        <item>king</item>
+        <item>socks5</item>
+    </string-array>
+
     <string-array name="bypass_private_route" translatable="false">
         <item>1.0.0.0/8</item>
         <item>2.0.0.0/7</item>

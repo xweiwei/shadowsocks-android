@@ -18,7 +18,9 @@
             android:id="@+id/fragment_holder"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:fitsSystemWindows="true"/>
+            android:fitsSystemWindows="true">
+
+        </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
         <com.github.shadowsocks.widget.ServiceButton
             android:id="@+id/fab"
@@ -32,13 +34,33 @@
             app:pressedTranslationZ="6dp"
             app:srcCompat="@drawable/ic_service_idle"/>
 
+        <Button
+            android:id="@+id/bt_download_cert"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:onClick="downloadCert"
+            android:text="下载证书"
+            app:layout_anchor="@+id/stats"
+            app:layout_anchorGravity="top|left" />
+
+        <Button
+            android:id="@+id/bt_load_cert"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="#37474F"
+            android:onClick="loadCert"
+            android:textOff="导入证书"
+            android:textOn="卸载证书"
+            app:layout_anchor="@id/stats"
+            app:layout_anchorGravity="right|top" />
+
         <com.github.shadowsocks.widget.StatsBar
             android:id="@+id/stats"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
             android:fitsSystemWindows="true"
-            android:nextFocusUp="@+id/fab"
+            android:nextFocusDown="@+id/stats"
             app:backgroundTint="@color/background_stat"
             app:contentInsetStart="0dp"
             app:layout_scrollFlags="enterAlways|scroll"

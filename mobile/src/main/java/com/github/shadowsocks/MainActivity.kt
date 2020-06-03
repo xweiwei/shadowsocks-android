@@ -50,11 +50,15 @@ import com.github.shadowsocks.preference.DataStore
 import com.github.shadowsocks.preference.OnPreferenceDataStoreChangeListener
 import com.github.shadowsocks.utils.Key
 import com.github.shadowsocks.utils.SingleInstanceActivity
+import com.github.shadowsocks.utils.hasCert
+import com.github.shadowsocks.utils.unloadCert
 import com.github.shadowsocks.widget.ListHolderListener
 import com.github.shadowsocks.widget.ServiceButton
 import com.github.shadowsocks.widget.StatsBar
 import com.google.android.material.navigation.NavigationView
 import com.google.android.material.snackbar.Snackbar
+import kotlinx.android.synthetic.main.layout_main.*
+import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity(), ShadowsocksConnection.Callback, OnPreferenceDataStoreChangeListener,
         NavigationView.OnNavigationItemSelectedListener {
@@ -182,6 +186,33 @@ class MainActivity : AppCompatActivity(), ShadowsocksConnection.Callback, OnPref
         changeState(BaseService.State.Idle) // reset everything to init state
         connection.connect(this, this)
         DataStore.publicStore.registerChangeListener(this)
+
+        certStatus()
+    }
+
+    private fun certStatus() {
+        val profile = Core.currentProfile?.first ?: return
+        if (hasCert(this, profile.host, profile.remotePort)) {
+            bt_load_cert.text = "卸载证书"
+        } else {
+            bt_load_cert.text = "导入证书"
+        }
+    }
+
+    fun loadCert(view: View) {
+        val profile = Core.currentProfile?.first ?: return
+        if (hasCert(this, profile.host, profile.remotePort)) {
+            unloadCert(this, profile.host, profile.remotePort)
+        } else {
+            com.github.shadowsocks.utils.loadCert(this, profile.host, profile.remotePort)
+        }
+        certStatus()
+    }
+
+    fun downloadCert(view: View) {
+        val profile = Core.currentProfile?.first ?: return
+        com.github.shadowsocks.utils.loadCert(this, profile.host, profile.remotePort, true)
+        certStatus()
     }
 
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
